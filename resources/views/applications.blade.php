@@ -1,23 +1,45 @@
 @extends('layouts.app')
 
+
+
+@section('title')
+Applications
+@endsection
+
+
+
 @section('content')
-<!-- Page Heading -->
-<div class="d-sm-flex align-items-center justify-content-between mb-4">
-    <h1 class="h3 mb-0 text-gray-800">{{ __('Applications') }}</h1>
-    <a href="#" class="btn btn-sm btn-secondary shadow-sm " data-toggle="modal" data-target="#createModal" ><i class="fas fa-plus"></i><span class="d-none d-md-inline"> {{ __('CREATE NEW') }}</span></a>
+<div class="row">
+    <div class="col">
+        <a href="#" class="btn btn-sm btn-primary shadow-sm float-right" data-toggle="modal" data-target="#createModal">
+            <i class="fas fa-plus fa-sm text-white-50"></i> NEW APPLICATION
+        </a>
+    </div>
 </div>
+<div class="space"></div>
+@if(Session::has('alert-success'))
+    <div class="alert alert-success" role="alert">
+        <b><i class="fa fa-check" aria-hidden="true"></i></b> {{ Session::get('alert-success') }}
+    </div>
+@endif
+    @if(Session::has('alert-error'))
+    <div class="alert alert-danger" role="alert">
+        <b><i class="fa fa-times" aria-hidden="true"></i></b> {{ Session::get('alert-error') }}
+    </div>
+@endif
 <div class="card shadow mb-4">
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
                 <thead>
                     <tr>
-                        <th class="text-center">{{ __('Domain') }}</th>
-                        <th class="text-center">{{ __('User') }}</th>
-                        <th class="text-center d-none d-lg-table-cell">{{ __('Server') }}</th>
-                        <th class="text-center d-none d-lg-table-cell">{{ __('IP') }}</th>
-                        <th class="text-center d-none d-lg-table-cell">{{ __('Type') }}</th>
-                        <th class="text-center">{{ __('Actions') }}</th>
+                        <th class="text-center">Domain</th>
+                        <th class="text-center">Server</th>
+                        <th class="text-center">User</th>
+                        <th class="text-center">Path</th>
+                        <th class="text-center">PHP</th>
+                        <th class="text-center">Aliases</th>
+                        <th class="text-center">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -25,30 +47,14 @@
                     @foreach($applications as $application)
                     <tr>
                         <td class="text-center">{{ $application->domain }}</td>
+                        <td class="text-center">{{ $application->server->ip }}</td>
                         <td class="text-center">{{ $application->username }}</td>
-                        <td class="text-center d-none d-lg-table-cell">{{ $application->server->name }}</td>
-                        <td class="text-center d-none d-lg-table-cell">{{ $application->server->ip }}</td>
-                        <td class="text-center d-none d-lg-table-cell">
-                            @switch($application->autoinstall)
-                                @case('wordpress')
-                                    <i class="fab fa-wordpress"></i>
-                                    @break
-                                @case('laravel')
-                                    <i class="fab fa-laravel"></i>
-                                    @break
-                                @case('git')
-                                    <i class="fab fa-github-alt"></i>
-                                    @break
-                                @case('none')
-                                    <i class="fab fa-php"></i>
-                                    @break
-                                @default
-
-                            @endswitch
-                        </td>
+                        <td class="text-center">/{{ $application->basepath }}</td>
+                        <td class="text-center">{{ $application->php }}</td>
+                        <td class="text-center">{{ count($application->aliases) }}</td>
                         <td class="text-center">
-                        <i class="fab fa-expeditedssl ssl-click" style="margin-right: 18px; cursor: pointer; color: gray;" data-application="{{ $application->appcode }}" id="ssl-{{ $application->appcode }}"></i>
-                    	<i class="fas fa-trash-alt" data-toggle="modal" data-target="#deleteModal" class="fas fa-trash-alt" data-app-code="{{ $application->appcode }}" data-app-domain="{{ $application->domain }}" style="color:gray; cursor: pointer;"></i>
+                            <i class="fab fa-expeditedssl ssl-click" style="margin-right: 18px; cursor: pointer; color: gray;" data-application="{{ $application->appcode }}" id="ssl-{{ $application->appcode }}"></i>
+                            <i class="fas fa-trash-alt" data-toggle="modal" data-target="#deleteModal" class="fas fa-trash-alt" data-app-code="{{ $application->appcode }}" data-app-domain="{{ $application->domain }}" style="color:gray; cursor: pointer;"></i>
                         </td>
                     </tr>
                     @endforeach
@@ -58,72 +64,83 @@
         </div>
     </div>
 </div>
+@endsection
 
 
+
+@section('extra')
 <!-- CREATE -->
 <div class="modal fade" id="createModal" tabindex="-1" role="dialog" aria-labelledby="createModalLabel" aria-hidden="true">
     <div class="modal-dialog" role="document">
         <div class="modal-content">
-            <form action="{{ route('applicationcreate') }}" method="POST" id="form-app-create">
+            <form action="/application/create" method="POST" id="form-app-create" class="ws-validate">
                 @csrf
                 <div class="modal-header">
-                    <h5 class="modal-title" id="createModalLabel">{{ __('Create a new application') }}</h5>
+                    <h5 class="modal-title" id="createModalLabel">Create a new application</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
                 <div class="modal-body">
                     <div class="form-group row">
-                        <label for="domain" class="col-md-4 col-form-label text-md-right">{{ __('Domain name') }}*</label>
+                        <label for="domain" class="col-md-4 col-form-label text-md-right">Domain name *</label>
                         <div class="col-md-6">
-                            <input id="domain" type="text" class="form-control @error('domain') is-invalid @enderror" name="domain" required autocomplete="off" autofocus placeholder="E.g. 'yourdomain.ltd'">
+                            <div class="form-group">
+                                <input id="domain" type="text" class="form-control" name="domain" required autocomplete="off" placeholder="E.g. 'yourdomain.ltd'">
+                            </div>
                         </div>
                     </div>
                     <div class="form-group row">
-                        <label for="server_id" class="col-md-4 col-form-label text-md-right">{{ __('Server') }}*</label>
+                        <label for="server_id" class="col-md-4 col-form-label text-md-right">Server</label>
                         <div class="col-md-6">
-                            <select class="form-control" name="server_id" required id="server-list">
-                                <option value="">{{ __('Select...') }}</option>
-                            </select>
+                            <div class="form-group">
+                                <select class="form-control" name="server_id" required id="server-list">
+                                    <option value="" selected>Select...</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     <div class="form-group row">
-                        <label for="basepath" class="col-md-4 col-form-label text-md-right">{{ __('Basepath') }}*</label>
+                        <label for="basepath" class="col-md-4 col-form-label text-md-right">Basepath</label>
                         <div class="col-md-6">
-                            <input id="basepath" type="text" class="form-control @error('name') is-invalid @enderror" name="basepath" autocomplete="off" required autofocus placeholder="E.g. 'public'" value="public">
+                            <div class="form-group">
+                                <input id="basepath" type="text" class="form-control" name="basepath" autocomplete="off" placeholder="E.g. 'public'" value="public">
+                            </div>
                         </div>
                     </div>
                     <div class="form-group row">
-                        <label for="autoinstall" class="col-md-4 col-form-label text-md-right">{{ __('Autoinstall') }}</label>
+                        <label for="php" class="col-md-4 col-form-label text-md-right">PHP</label>
                         <div class="col-md-6">
-                            <select class="form-control" name="autoinstall">
-                                <option value="none">{{ __('None... just pure web!') }}</option>
-                                <option value="laravel">{{ __('Install Laravel') }}</option>
-                                <option value="wordpress">{{ __('Install Wordpress') }}</option>
-                                <option value="git">{{ __('Install a GitHub project') }}</option>
-                            </select>
+                            <div class="form-group">
+                                <select class="form-control" name="php">
+                                    <option value="7.4" selected>7.4</option>
+                                    <option value="7.3">7.3</option>
+                                    <option value="7.2">7.2</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="app-close" data-dismiss="modal">{{ __('Close') }}</button>
-                    <button type="submit" class="btn btn-primary" id="app-create">{{ __('Create application') }}</button>
-                    <div id="app-coming" style="display: none; color: #224abe;"><h3><i class="fas fa-spinner fa-spin"></i>  <b>{{ __('Your app is coming... Hold On!!!') }}</b></h3></div>
+                    <button type="button" class="btn btn-secondary" id="app-close" data-dismiss="modal">Close</button>
+                    <button type="submit" class="btn btn-primary" id="app-create">Create application</button>
+                    <div id="app-coming" style="display: none;"><i class="fas fa-spinner fa-spin"></i>  <b>Your app is coming... Hold On!!!</b></div>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
+
 <!-- DELETE -->
 <div class="modal fade" id="deleteModal" tabindex="-1" role="dialog" aria-labelledby="deleteModalLabel" aria-hidden="true">
     <div class="modal-dialog" role="document">
         <div class="modal-content">
-            <form action="{{ route('applicationdelete') }}" method="POST">
+            <form action="/application/destroy" method="POST">
                 @csrf
                 <input type="hidden" name="appcode" id="app-code" value="">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="deleteModalLabel">{{ __('Delete application') }}</h5>
+                    <h5 class="modal-title" id="deleteModalLabel">Delete application</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -131,13 +148,13 @@
                 <div class="modal-body">
                     <div class=" row">
                         <div class="col-sm-12">
-                            <h6>{{ __('Are you sure to delete application') }} <i><b><span id="app-domain"></span></b></i>, {{ __('its database and all realated aliases') }}?</h6>
+                            <h6>Are you sure to delete application <i><b><span id="app-domain"></span></b></i>, its database and all realated aliases?</h6>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ __('Close') }}</button>
-                    <button type="submit" class="btn btn-primary">{{ __('Delete application') }}</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="submit" class="btn btn-primary">Delete application</button>
                 </div>
             </form>
         </div>
@@ -145,18 +162,24 @@
 </div>
 @endsection
 
-@section('scripts')
-<link href="{{ asset('vendor/datatables/dataTables.bootstrap4.min.css') }}" rel="stylesheet">
-<script src="{{ asset('vendor/datatables/jquery.dataTables.min.js') }}"></script>
-<script src="{{ asset('vendor/datatables/dataTables.bootstrap4.min.js') }}"></script>
+
+
+@section('css')
+<link rel="stylesheet" href="https://allyoucan.cloud/cdn/datatable/1.10.13/css/dataTables.css">
+@endsection
+
+
+
+@section('js')
+<script src="https://allyoucan.cloud/cdn/datatable/1.10.13/js/dataTables.js"></script>
 <script>
-	$(document).ready(function() {
-		$('#dataTable').DataTable();
-	});
+    $(document).ready(function() {
+        $('#dataTable').DataTable();
+    });
 </script>
 <script>
-    $.get("{{ url('/') }}/ajaxservers/", function(servers) {
-        JSON.parse(servers).forEach(server => {
+    $.get("/servers/api", function(servers) {
+        JSON.parse(JSON.stringify(servers)).forEach(server => {
             $("#server-list").append("<option value='"+server["id"]+"'>"+server["name"]+" ("+server["ip"]+")</option>");
         });
     });
@@ -166,7 +189,7 @@ function generatessl(application) {
     $("#ssl-"+application).removeClass("fab fa-expeditedssl");
     $("#ssl-"+application).addClass("fas fa-spinner fa-spin");
     $.ajax({
-        url: "{{ url('/') }}/server/api/sslapplication/"+application,
+        url: "/application/ssl/"+application,
         type: "GET",
         success: function(response){
             if(response != "OK") {

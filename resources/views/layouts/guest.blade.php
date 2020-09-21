@@ -3,12 +3,13 @@
 
 <head>
     <meta charset="utf-8">
+    <title>{{ config('app.name', 'Cipi') }} | @yield('title')</title>
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>{{ config('app.name', 'Cipi') }}</title>
-    <link href="{{ asset('vendor/fontawesome-free/css/all.min.css') }}" rel="stylesheet" type="text/css">
-    <link href="https://fonts.googleapis.com/css?family=Nunito:200,200i,300,300i,400,400i,600,600i,700,700i,800,800i,900,900i" rel="stylesheet">
-    <link href="{{ asset('css/sb-admin-2.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="https://allyoucan.cloud/cdn/fontawesome/5.11.2/css/all.css">
+    <link rel='stylesheet' href='https://allyoucan.cloud/fonts/css/?family=Nunito-Regular'>
+    <link href="/app.css" rel="stylesheet">
 </head>
 
 <body class="bg-gradient-primary">
@@ -17,9 +18,10 @@
         @yield('content')
     </div>
 
-    <script src="{{ asset('vendor/jquery/jquery.min.js') }}" defer></script>
-    <script src="{{ asset('vendor/bootstrap/js/bootstrap.bundle.min.js') }}" defer></script>
-    <script src="{{ asset('vendor/jquery-easing/jquery.easing.min.js') }}" defer></script>
+    <script src="https://allyoucan.cloud/cdn/jquery/core/3.4.1/jquery.js"></script>
+    <script src="https://allyoucan.cloud/cdn/bootstrap/core/4.2.1/js/bootstrap.js"></script>
+    <script src="https://allyoucan.cloud/cdn/webshim/1.16.0/polyfiller.js"></script>
+    <script src="/app.js"></script>
 
 </body>
 

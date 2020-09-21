@@ -3,87 +3,57 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use App\User;
 use App\Application;
+use phpseclib\Net\SSH2 as SSH;
 
 
-class UsersController extends Controller
-{
+class UsersController extends Controller {
 
-    public function __construct()
-    {
-        $this->middleware('auth');
+
+    public function index() {
+        $users = Application::all();
+        return view('users', compact('users'));
     }
 
 
-    public function index()
-    {
-        $user = User::find(Auth::id());
-        $profile = $user->name;
-
-        $hostusers = Application::all();
-
-        return view('users', compact('profile', 'hostusers'));
-    }
-
-
-    public function reset(Request $request)
-    {
-
-        $user = User::find(Auth::id());
-        $profile = $user->name;
-
+    public function reset(Request $request) {
         $this->validate($request, [
             'username' => 'required'
         ]);
-
-        $application = Application::where('username', $request->username)->get()->first();
-
-        if(!$application) {
-            return redirect()->route('users');
-        }
-
-
-        $ssh = New \phpseclib\Net\SSH2($application->server->ip, $application->server->port);
+        $application = Application::where('username', $request->username)->with('server')->firstOrFail();
+        $ssh = New SSH($application->server->ip, $application->server->port);
         if(!$ssh->login($application->server->username, $application->server->password)) {
-            $messagge = 'There was a problem with server connection. Try later!';
-            return view('generic', compact('profile','messagge'));
+            $request->session()->flash('alert-error', 'There was a problem with server connection.');
+            return redirect('/users');
         }
-
-        $pass   = str_random(32);
-        $dbpass = str_random(16);
-
-        $ssh->setTimeout(60);
-        $response = $ssh->exec('echo '.$application->server->password.' | sudo -S sudo sh /cipi/passwd.sh -u '.$request->username.' -p '.$pass.' -dbp '.$dbpass. ' -dbop '.$application->dbpass);
-
+        $pass = sha1(uniqid().microtime().$application->domain);
+        $ssh->setTimeout(360);
+        $response = $ssh->exec('echo '.$application->server->password.' | sudo -S sudo sh /cipi/passwd.sh -u '.$request->username.' -p '.$pass.' -dbp '.$application->dbpass. ' -dbop '.$application->dbpass);
+        if(strpos($response, '###CIPI###') === false) {
+            $request->session()->flash('alert-error', 'There was a problem with server scripts.');
+            return redirect('/users');
+        }
         $response = explode('###CIPI###', $response);
         if(strpos($response[1], 'Ok') === false) {
-            $messagge = 'There was a problem with server. Try later!';
-            return view('generic', compact('profile','messagge'));
+            $request->session()->flash('alert-error', 'There was a problem with server scripts.');
+            return redirect('/users');
         }
-
-        Application::where(['id' => $application->id])->update([
-            'password'  => $pass,
-            'dbpass'    => $dbpass,
-        ]);
-
+        $application->password = $pass;
+        $application->save();
         $app = [
             'user'          => $request->username,
             'pass'          => $pass,
             'dbname'        => $request->username,
             'dbuser'        => $request->username,
-            'dbpass'        => $dbpass,
+            'dbpass'        => $application->dbpass,
             'path'          => $application->basepath,
             'domain'        => $application->domain,
-            'autoinstall'   => $application->autoinstall,
+            'php'           => $application->php,
             'host'          => $application->server->ip,
             'port'          => $application->server->port,
         ];
-
         $appcode = $application->appcode;
-
-        return view('application', compact('profile','app','appcode'));
+        return view('application', compact('app','appcode'));
     }
 
 }

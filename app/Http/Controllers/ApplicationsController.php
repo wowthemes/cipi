@@ -2,192 +2,127 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Routing\UrlGenerator;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use App\User;
 use App\Application;
 use App\Server;
 use App\Alias;
-use Helper;
+use phpseclib\Net\SSH2 as SSH;
 use PDF;
 
-class ApplicationsController extends Controller
-{
+class ApplicationsController extends Controller {
 
-    public function __construct()
-    {
-        $this->middleware('auth');
+    protected $url;
+
+    public function __construct(UrlGenerator $url) {
+        $this->url = $url;
     }
 
-    public function index()
-    {
-
-    	$user = User::find(Auth::id());
-        $profile = $user->name;
-
-        $applications = Application::orderBy('domain')->orderBy('server_id')->get();
-
-        return view('applications', compact('profile', 'applications'));
+    public function index() {
+        $applications = Application::with('server')->with('aliases')->get();
+        return view('applications', compact('applications'));
     }
 
+    public function api() {
+        return Application::orderBy('domain')->get();
+    }
 
-    public function create(Request $request)
-    {
-
-
-        $user = User::find(Auth::id());
-        $profile = $user->name;
-
-
+    public function create(Request $request) {
         $this->validate($request, [
-            'domain' => 'required', 'server_id' => 'required', 'basepath' => 'required',
+            'domain' => 'required',
+            'server_id' => 'required',
+            'php' => 'required'
         ]);
-
-
-        if(Application::where('domain', $request->domain)->where('server_id', $request->server_id)->get()->first()) {
-            $messagge = "This domain is already taken on this server.";
-            return view('generic', compact('profile','messagge'));
+        if(Application::where('domain', $request->domain)->where('server_id', $request->server_id)->first()) {
+            $request->session()->flash('alert-error', 'This domain is already taken on this server');
+            return redirect('/applications');
         }
-
-
-        if(Alias::where('domain', $request->domain)->where('server_id', $request->server_id)->get()->first()) {
-            $messagge = "This domain is already taken on this server.";
-            return view('generic', compact('profile','messagge'));
+        $aliases = Alias::where('domain', $request->domain)->with('application')->get();
+        foreach($aliases as $alias) {
+            if($alias->application->server_id == $request->server_id) {
+                $request->session()->flash('alert-error', 'This domain is already taken on this server');
+                return redirect('/applications');
+            }
         }
-
-
-        $server = Server::where('id', $request->server_id)->where('complete', 2)->get()->first();
-
-
-        if(!$server) {
-            return abort(403);
-        }
-
-
-        $code   = hash('crc32', uniqid()).str_random(2);
-        $pass   = str_random(32);
-        $dbpass = str_random(16);
-        $appcode= sha1(uniqid().microtime().$request->name);
-
-
-        $autoinstall = $request->autoinstall;
-
-
-        switch ($autoinstall) {
-            case 'laravel':
-                $base = 'laravel/public';
-                break;
-            case 'wordpress':
-                $base = 'wordpress';
-                break;
-            default:
-                $base = $request->basepath;
-                break;
-        }
-
-
-        $ssh = New \phpseclib\Net\SSH2($server->ip, $server->port);
-        if(!$ssh->login($server->username, $server->password)) {
-            $messagge = 'There was a problem with server connection. Try later!';
-            return view('generic', compact('profile','messagge'));
-        }
-
-
-        $ssh->setTimeout(360);
-        $response = $ssh->exec('echo '.$server->password.' | sudo -S sudo sh /cipi/host-add.sh -d '.$request->domain.' -u '.$code.' -p '.$pass.' -dbp '.$dbpass.' -b '.$base.' -ai '.$autoinstall);
-
-
-        if(strpos($response, '###CIPI###') === false) {
-            $messagge = 'There was a problem with server. Try later!';
-            return view('generic', compact('profile','messagge'));
-        }
-
-
-        $response = explode('###CIPI###', $response);
-        if(strpos($response[1], 'Ok') === false) {
-            $messagge = 'There was a problem with server. Try later!';
-            return view('generic', compact('profile','messagge'));
-        }
-
-
-        Application::create([
+        $server = Server::where('id', $request->server_id)->where('status', 2)->firstOrFail();
+        $user   = 'cp'.hash('crc32', (Str::uuid()->toString())).rand(1,9);
+        $pass   = sha1(uniqid().microtime().$request->domain);
+        $dbpass = sha1(microtime().uniqid().$request->ip);
+        $appcode= sha1(uniqid().$request->domain.microtime().$request->server_id);
+        $base   = $request->basepath;
+        $application = Application::create([
             'domain'        => $request->domain,
             'server_id'     => $request->server_id,
-            'username'      => $code,
+            'username'      => $user,
             'password'      => $pass,
             'dbpass'        => $dbpass,
             'basepath'      => $base,
-            'autoinstall'   => $autoinstall,
+            'php'           => $request->php,
             'appcode'       => $appcode,
         ]);
-
+        if(!$application) {
+            $request->session()->flash('alert-error', 'There was a problem! Retry.');
+            return redirect('/applications');
+        }
+        $ssh = New SSH($server->ip, $server->port);
+        if(!$ssh->login($server->username, $server->password)) {
+            $request->session()->flash('alert-error', 'There was a problem with server connection.');
+            return redirect('/applications');
+        }
+        $ssh->setTimeout(360);
+        if($base) {
+            $response = $ssh->exec('echo '.$server->password.' | sudo -S sudo sh /cipi/host-add.sh -u '.$user.' -p '.$pass.' -dbp '.$dbpass.' -b '.$base.' -php '.$request->php.' -a '.$appcode.' -r '.$this->url->to('/'));
+        } else {
+            $response = $ssh->exec('echo '.$server->password.' | sudo -S sudo sh /cipi/host-add.sh -u '.$user.' -p '.$pass.' -dbp '.$dbpass.' -php '.$request->php.' -a '.$appcode.' -r '.$this->url->to('/'));
+        }
+        if(strpos($response, '###CIPI###') === false) {
+            $request->session()->flash('alert-error', 'There was a problem with server scripts.');
+            return redirect('/applications');
+        }
+        $response = explode('###CIPI###', $response);
+        if(strpos($response[1], 'Ok') === false) {
+            $request->session()->flash('alert-error', 'There was a problem with server scripts.');
+            return redirect('/applications');
+        }
         $app = [
-            'user'          => $code,
+            'user'          => $user,
             'pass'          => $pass,
-            'dbname'        => $code,
-            'dbuser'        => $code,
+            'dbname'        => $user,
+            'dbuser'        => $user,
             'dbpass'        => $dbpass,
             'path'          => $base,
-            'autoinstall'   => $autoinstall,
+            'php'           => $request->php,
             'domain'        => $request->domain,
             'host'          => $server->ip,
             'port'          => $server->port,
         ];
-
-        return view('application', compact('profile','app','appcode'));
-
+        return view('application', compact('app','appcode'));
     }
 
-
-
-
-
-
-    public function delete(Request $request)
-    {
-
-        $user = User::find(Auth::id());
-        $profile = $user->name;
-
+    public function destroy(Request $request) {
         $this->validate($request, [
             'appcode' => 'required',
         ]);
-
-        $application = Application::where('appcode', $request->appcode)->get()->first();
-
-        if(!$application) {
-            return abort(403);
-        }
-
-        $application->delete();
-
-        $ssh = New \phpseclib\Net\SSH2($application->server->ip, $application->server->port);
+        $application = Application::where('appcode', $request->appcode)->firstOrFail();
+        $ssh = New SSH($application->server->ip, $application->server->port);
         if(!$ssh->login($application->server->username, $application->server->password)) {
-            $messagge = 'There was a problem with server connection. Try later!';
-            return view('generic', compact('profile','messagge'));
+            $request->session()->flash('alert-error', 'There was a problem with server connection.');
+            return redirect('/applications');
         }
-
-        $ssh->setTimeout(60);
+        $ssh->setTimeout(360);
         foreach ($application->aliases as $alias) {
-            $ssh->exec('echo '.$application->server->password.' | sudo -S unlink /etc/cron.d/certbot_renew_'.$alias->domain.'.crontab');
-            $ssh->exec('echo '.$application->server->password.' | sudo -S unlink /cipi/certbot_renew_'.$alias->domain.'.sh');
+            $ssh->exec('echo '.$application->server->password.' | sudo -S unlink /etc/nginx/sites-enabled/'.$alias->domain.'.conf');
+            $ssh->exec('echo '.$application->server->password.' | sudo -S unlink /etc/nginx/sites-available/'.$alias->domain.'.conf');
         }
-        $response = $ssh->exec('echo '.$application->server->password.' | sudo -S sudo sh /cipi/host-del.sh -u '.$application->username);
-
+        $ssh->exec('echo '.$application->server->password.' | sudo -S sudo sh /cipi/host-del.sh -u '.$application->username.' -p '.$application->php);
         $application->delete();
-
-        return redirect()->route('applications');
-
+        $request->session()->flash('alert-success', 'Application has been removed!');
+        return redirect('/applications');
     }
 
-
-
-
-
-    public function pdf($applicationcode)
-    {
-
-        $application = Application::where('appcode', $applicationcode)->get()->first();
+    public function pdf($appcode) {
+        $application = Application::where('appcode', $appcode)->firstOrFail();
         $data = [
             'username'      => $application->username,
             'password'      => $application->password,
@@ -196,14 +131,39 @@ class ApplicationsController extends Controller
             'port'          => $application->server->port,
             'domain'        => $application->domain,
             'dbpass'        => $application->dbpass,
-            'autoinstall'   => $application->autoinstall,
+            'php'           => $application->php,
         ];
-
         $pdf = PDF::loadView('pdf', $data);
         return $pdf->download($application->username.'_'.date('YmdHi').'_'.date('s').'.pdf');
-
     }
 
+    public static function sslcheck($domain) {
+        $ssl_check = @fsockopen('ssl://' . $domain, 443, $errno, $errstr, 30);
+        $res = !! $ssl_check;
+        if($ssl_check) { fclose($ssl_check); }
+        return $res;
+    }
 
+    public function ssl($appcode) {
+        $application = Application::where('appcode', $appcode)->first();
+        if(!$application) {
+            return abort(403);
+        }
+        $ssh = New SSH($application->server->ip, $application->server->port);
+        if(!$ssh->login($application->server->username, $application->server->password)) {
+            return abort(403);
+        }
+        $ssh->setTimeout(360);
+        $response = $ssh->exec('echo '.$application->server->password.' | sudo -S sudo sh /cipi/ssl.sh -d '.$application->domain.' -c '.$application->username);
+        if(strpos($response, '###CIPI###') === false) {
+            abort(500);
+        }
+        $response = explode('###CIPI###', $response);
+        if($response[1] == "Ok\n" && $this->sslcheck($application->domain)) {
+            return 'OK';
+        } else {
+            return abort(500);
+        }
+    }
 
 }

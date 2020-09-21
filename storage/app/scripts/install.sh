@@ -1,182 +1,608 @@
 #!/bin/bash
 
+
+#START
+clear
+echo "Welcome on Cipi Cloud Control Panel ;)"
+sleep 3s
+
+
+
+#WAIT
 clear
 echo "Wait..."
 sleep 3s
-echo -e "\n"
 
-#VARS
-IP=???
-PORT=???
-USER=???
-PASS=???
-DBPASS=???
-SERVERCODE=???
-REMOTEURL=???
+
+
+#OS Check
+ID=$(grep -oP '(?<=^ID=).+' /etc/os-release | tr -d '"')
+VERSION=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
+if [ "$ID" = "ubuntu" ]; then
+    case $VERSION in
+        18.04)
+            clear
+            echo "Running on Ubuntu 18.04 LTS ;)"
+            sleep 2s
+            break
+            ;;
+        20.04)
+            clear
+            echo "Running on Ubuntu 20.04 LTS ;)"
+            sleep 2s
+            break
+            ;;
+        *)
+            clear
+            echo "You have to run this script on Ubuntu 18.04 LTS or Ubuntu 20.04 LTS"
+            exit 1;
+            break
+            ;;
+    esac
+else
+    clear
+    echo "You have to run this script on Ubuntu 18.04 LTS or Ubuntu 20.04 LTS"
+    exit 1
+fi
+
+
 
 #ROOT Check
 if [ "$(id -u)" = "0" ]; then
     clear
     echo "Running as root :)"
     sleep 2s
-    echo -e "\n"
 else
     clear
-    echo "You have to run this script as root. In AWS digit 'sudo -s'"
-    echo -e "\n"
+    echo -e "You have to run this script as root. In AWS digit 'sudo -s'"
     exit 1
 fi
 
-#REMOTE CURL
-curl --request GET --url $REMOTEURL/server/api/start/$SERVERCODE
+
 
 #START
 clear
 echo "Installation has been started... It may takes some time! Hold on :)"
-sleep 6s
-echo -e "\n"
+sleep 5s
 
-#CIPI CORE
-sudo mkdir /cipi/
-sudo mkdir /cipi/html/
-wget $REMOTEURL/scripts/deploy/$SERVERCODE/  -O /cipi/deploy.sh
-wget $REMOTEURL/scripts/hostadd/$SERVERCODE/ -O /cipi/host-add.sh
-wget $REMOTEURL/scripts/hostdel/$SERVERCODE/ -O /cipi/host-del.sh
-wget $REMOTEURL/scripts/hostssl/$SERVERCODE/ -O /cipi/ssl.sh
-wget $REMOTEURL/scripts/passwd/$SERVERCODE/  -O /cipi/passwd.sh
-wget $REMOTEURL/scripts/status/$SERVERCODE/  -O /cipi/status.sh
-sudo chmod o-r /cipi
+
+
+#CIPI START
 clear
-echo "Core scripts: OK!"
+echo "Cipi remote configuration..."
 sleep 3s
-echo -e "\n"
 
-#ALIAS
+REMOTE=???
+PORT=???
+USER=???
+PASS=???
+DBPASS=???
+SERVERCODE=???
+
+sudo apt-get update
+sudo apt-get -y install curl wget
+
+curl --request GET --url $REMOTE/remote/start/$SERVERCODE
+
+sudo mkdir /cipi/
+wget $REMOTE/sh/ha/$SERVERCODE/ -O /cipi/host-add.sh
+wget $REMOTE/sh/hd/$SERVERCODE/ -O /cipi/host-del.sh
+wget $REMOTE/sh/aa/$SERVERCODE/ -O /cipi/alias-add.sh
+wget $REMOTE/sh/ad/$SERVERCODE/ -O /cipi/alias-del.sh
+wget $REMOTE/sh/pw/$SERVERCODE/ -O /cipi/passwd.sh
+wget $REMOTE/sh/rt/$SERVERCODE/ -O /cipi/root.sh
+wget $REMOTE/sh/st/ -O /cipi/status.sh
+wget $REMOTE/sh/dy/ -O /cipi/deploy.sh
+wget $REMOTE/sh/sc/ -O /cipi/ssl.sh
+sudo chmod o-r /cipi
+
+clear
+echo "Cipi remote configuration: OK!"
+sleep 3s
+
+
+
+#SERVER BASIC CONFIGURATION
+clear
+echo "Server basic configuration..."
+sleep 3s
+
+sudo apt-get update
+sudo apt-get -y install nano rpl sed zip unzip openssl expect dirmngr apt-transport-https lsb-release ca-certificates dnsutils dos2unix zsh htop
+
+WELCOME=/etc/motd
+sudo touch $WELCOME
+sudo cat > "$WELCOME" <<EOF
+  _____ _       _
+ / ____(_)     (_)
+| |     _ _ __  _
+| |    | |  _ \| |
+| |____| | |_) | |
+ \_____|_| .__/|_|
+         | |
+         |_|
+
+    <\ cipi.sh >
+
+You are into the server!
+Remember... "With great power comes great responsibility!"
+Enjoy your session ;) ...
+
+EOF
+
+sudo /bin/dd if=/dev/zero of=/var/swap.1 bs=1M count=1024
+sudo /sbin/mkswap /var/swap.1
+sudo /sbin/swapon /var/swap.1
+
+sudo mkdir /cipi/
+sudo chmod o-r /cipi
+
+sudo dos2unix /cipi/deploy.sh
+sudo dos2unix /cipi/passwd.sh
+sudo dos2unix /cipi/root.sh
+sudo dos2unix /cipi/status.sh
+sudo dos2unix /cipi/ssl.sh
+sudo dos2unix /cipi/host-add.sh
+sudo dos2unix /cipi/host-del.sh
+sudo dos2unix /cipi/alias-add.sh
+sudo dos2unix /cipi/alias-del.sh
+
 shopt -s expand_aliases
 alias ll='ls -alF'
-clear
-echo "Alias settings: OK!"
-sleep 3s
-echo -e "\n"
 
-#NEWROOT USER
+DATABASE=/cipi/dbroot
+sudo touch $DATABASE
+sudo cat > "$DATABASE" <<EOF
+$DBPASS
+EOF
+
+clear
+echo "Server basic configuration: OK!"
+sleep 3s
+
+
+
+#CIPI USER
+clear
+echo "User creation..."
+sleep 3s
+
+sudo pam-auth-update --package
+sudo mount -o remount,rw /
+sudo chmod 640 /etc/shadow
 sudo useradd -m -s /bin/bash $USER
-echo "$USER:$PASS"|chpasswd
+echo "$USER:$PASS"|sudo chpasswd
 sudo usermod -aG sudo $USER
+
 clear
-echo "New root user: OK!"
+echo "User creation: OK!"
 sleep 3s
 echo -e "\n"
 
-#PHP7 PPA
-sudo apt-get -y install python-software-properties
-sudo apt-get -y install software-properties-common
-sudo add-apt-repository -y universe
-sudo apt-get -y install software-properties-common
-sudo add-apt-repository -y ppa:ondrej/php
+
+
+#REPOSITORIES
 clear
+echo "Repositories update..."
+sleep 3s
+
+sudo apt-get -y install software-properties-common
+sudo apt-get -y autoremove
+sudo apt-get update
+sudo apt-get upgrade -y
+sudo apt-get update
+clear
+
 echo "Repositories: OK!"
 sleep 3s
-echo -e "\n"
 
-#REPO UPDATES
-sudo apt-get update
 
-#LAMP INSTALLATION
-sudo apt -y purge libzip4
-wget http://ftp.it.debian.org/debian/pool/main/libz/libzip/libzip4_1.5.1-4_amd64.deb
-sudo dpkg -i libzip4_1.5.1-4_amd64.deb
-sudo apt-get -y install rpl dos2unix fail2ban openssl apache2 php7.3 php7.3-common php7.3-intl php7.3-cli php7.3-fpm php-pear php7.3-curl php7.3-dev php7.3-gd php7.3-mbstring php-gettext php7.3-zip php7.3-mysql php7.3-xml libmcrypt-dev zip unzip mysql-client
-clear
-echo "Base installation: OK!"
-sleep 3s
-echo -e "\n"
 
 #FIREWALL
-sudo ufw --force-enable reset
 clear
-echo "Firewall rules: OK!"
+echo "Firewall installation..."
 sleep 3s
-echo -e "\n"
 
-#MYSQL INSTALLATION AND PASSWORD SET
+sudo apt-get -y install fail2ban
+
+JAIL=/etc/fail2ban/jail.local
+sudo unlink JAIL
+sudo touch $JAIL
+sudo cat > "$JAIL" <<EOF
+[DEFAULT]
+bantime = 3600
+banaction = iptables-multiport
+
+[sshd]
+enabled = true
+
+logpath  = /var/log/auth.log
+EOF
+
+sudo systemctl restart fail2ban
+sudo ufw --force enable
+sudo ufw allow ssh
+sudo ufw allow http
+sudo ufw allow https
+sudo ufw allow "Nginx Full"
+
+echo "Firewall: OK!"
+sleep 3s
+
+
+
+#NGINX
+clear
+echo "nginix installation..."
+sleep 3s
+
+sudo apt-get -y install nginx
+sudo systemctl start nginx.service
+sudo rpl -i -w "http {" "http { limit_req_zone \$binary_remote_addr zone=one:10m rate=1r/s; fastcgi_read_timeout 300;" /etc/nginx/nginx.conf
+sudo systemctl enable nginx.service
+
+echo "nginx: OK!"
+sleep 3s
+
+
+
+#PHP
+clear
+echo "PHP installation..."
+sleep 3s
+
+sudo add-apt-repository -y ppa:ondrej/php
+sudo apt-get update
+
+sudo apt-get -y install php7.2-fpm
+sudo apt-get -y install php7.2-common
+sudo apt-get -y install php7.2-mbstring
+sudo apt-get -y install php7.2-mysql
+sudo apt-get -y install php7.2-xml
+sudo apt-get -y install php7.2-zip
+sudo apt-get -y install php7.2-bcmath
+sudo apt-get -y install php7.2-imagick
+PHPINI72=/etc/php/7.2/fpm/conf.d/cipi.ini
+sudo touch $PHPINI72
+sudo cat > "$PHPINI72" <<EOF
+memory_limit = 256M
+upload_max_filesize = 256M
+post_max_size = 256M
+max_execution_time = 180
+max_input_time = 180
+EOF
+sudo service php7.2-fpm restart
+
+sudo apt-get -y install php7.3-fpm
+sudo apt-get -y install php7.3-common
+sudo apt-get -y install php7.3-mbstring
+sudo apt-get -y install php7.3-mysql
+sudo apt-get -y install php7.3-xml
+sudo apt-get -y install php7.3-zip
+sudo apt-get -y install php7.3-bcmath
+sudo apt-get -y install php7.3-imagick
+PHPINI73=/etc/php/7.3/fpm/conf.d/cipi.ini
+sudo touch $PHPINI73
+sudo cat > "$PHPINI73" <<EOF
+memory_limit = 256M
+upload_max_filesize = 256M
+post_max_size = 256M
+max_execution_time = 180
+max_input_time = 180
+EOF
+sudo service php7.3-fpm restart
+
+sudo apt-get -y install php7.4-fpm
+sudo apt-get -y install php7.4-common
+sudo apt-get -y install php7.4-mbstring
+sudo apt-get -y install php7.4-mysql
+sudo apt-get -y install php7.4-xml
+sudo apt-get -y install php7.4-zip
+sudo apt-get -y install php7.4-bcmath
+sudo apt-get -y install php7.4-imagick
+PHPINI74=/etc/php/7.4/fpm/conf.d/cipi.ini
+sudo touch $PHPINI74
+sudo cat > "$PHPINI74" <<EOF
+memory_limit = 256M
+upload_max_filesize = 256M
+post_max_size = 256M
+max_execution_time = 180
+max_input_time = 180
+EOF
+sudo service php7.4-fpm restart
+
+sudo update-alternatives --set php /usr/bin/php7.4
+
+NGINX=/etc/nginx/sites-available/default
+sudo unlink NGINX
+sudo touch $NGINX
+sudo cat > "$NGINX" <<EOF
+server {
+
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    root /var/www/html;
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    client_max_body_size 256M;
+
+    index index.html index.php;
+
+    charset utf-8;
+
+    server_tokens off;
+
+    location / {
+        try_files   \$uri     \$uri/  /index.php?\$query_string;
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    error_page 404 /index.php;
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php7.4-fpm.sock;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+EOF
+
+sudo mkdir /etc/nginx/cipi/
+
+sudo systemctl restart nginx.service
+
+echo "PHP: OK!"
+sleep 3s
+
+#MYSQL
+clear
+echo "Mysql installation..."
+sleep 3s
+
+if [ "$VERSION" = "20.04" ]; then
+
+sudo apt-get install -y mysql-server
+SECURE_MYSQL=$(expect -c "
+set timeout 10
+spawn mysql_secure_installation
+expect \"Press y|Y for Yes, any other key for No:\"
+send \"n\r\"
+expect \"New password:\"
+send \"$DBPASS\r\"
+expect \"Re-enter new password:\"
+send \"$DBPASS\r\"
+expect \"Remove anonymous users? (Press y|Y for Yes, any other key for No)\"
+send \"y\r\"
+expect \"Disallow root login remotely? (Press y|Y for Yes, any other key for No)\"
+send \"n\r\"
+expect \"Remove test database and access to it? (Press y|Y for Yes, any other key for No)\"
+send \"y\r\"
+expect \"Reload privilege tables now? (Press y|Y for Yes, any other key for No) \"
+send \"y\r\"
+expect eof
+")
+echo "$SECURE_MYSQL"
+
+/usr/bin/mysql -u root -p$DBPASS <<EOF
+use mysql;
+CREATE USER 'cipi'@'%' IDENTIFIED BY '$DBPASS';
+GRANT ALL PRIVILEGES ON *.* TO 'cipi'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+
+else
+
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password password $DBPASS"
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password_again password $DBPASS"
-sudo apt-get -y install mysql-server
-clear
-echo "MySql service: OK!"
-sleep 3s
-echo -e "\n"
+sudo apt-get -y install mysql-server mysql-client
 
-#SERVICE RESTART AND CONFIGURATION FIXING
-echo -e "\n"
-sudo a2enmod rewrite
-echo -e "\n"
-sudo a2enmod proxy_fcgi setenvif
-echo -e "\n"
-sudo a2enconf php7.3-fpm
-echo -e "\n"
-sudo rpl -i -w "AllowOverride None" "AllowOverride All" /etc/apache2/apache2.conf
-echo -e "\n"
-sudo service apache2 restart && apache2 reload && service mysql restart > /dev/null
-echo -e "\n"
-php -v
-if [ $? -ne 0 ]; then
-   echo "Please Check the Install Services, There is some $(tput bold)$(tput setaf 1)Problem$(tput sgr0)"
-else
-   echo "Installed Services run $(tput bold)$(tput setaf 2)Sucessfully$(tput sgr0)"
 fi
+
 clear
-echo "PHP-FPM configuration: OK!"
+echo "Mysql: OK!"
+sleep 3s
+
+
+
+#REDIS
+clear
+echo "Redis installation..."
+sleep 3s
+
+sudo apt install -y redis-server
+sudo rpl -i -w "supervised no" "supervised systemd" /etc/redis/redis.conf
+sudo systemctl restart redis.service
+
+clear
+echo "Redis: OK!"
+sleep 3s
+
+
+
+#LET'S ENCRYPT
+clear
+echo "Let's Encrypt installation..."
+sleep 3s
+
+if [ "$VERSION" = "20.04" ]; then
+sudo snap install --beta --classic certbot
+else
+sudo add-apt-repository -y ppa:certbot/certbot
+sudo apt-get -y install python-certbot-nginx
+fi
+
+clear
+echo "Let's Encrypt: OK!"
+sleep 3s
+
+
+
+#GIT
+clear
+echo "Git installation..."
+sleep 3s
+
+sudo apt-get -y install git
+sudo ssh-keygen -t rsa -C "git@github.com" -f /cipi/github -q -P ""
+
+clear
+echo "Git installation: OK!"
+sleep 3s
+
+
+
+#COMPOSER
+clear
+echo "Composer installation..."
+sleep 3s
+
+sudo php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+sudo php composer-setup.php
+sudo php -r "unlink('composer-setup.php');"
+sudo mv composer.phar /usr/local/bin/composer
+sudo composer config --global repo.packagist composer https://packagist.org
+
+clear
+echo "Composer installation: OK!"
+sleep 3s
+
+
+
+#SUPERVISOR
+echo "Supervisor installation..."
+sleep 3s
+
+sudo apt-get -y install supervisor
+service supervisor restart
+
+clear
+echo "Supervisor installation: OK!"
+sleep 3s
+
+
+
+#NODE
+clear
+echo "node.js & npm installation..."
+sleep 3s
+
+if [ "$VERSION" = "20.04" ]; then
+
+curl -s https://deb.nodesource.com/gpgkey/nodesource.gpg.key | sudo apt-key add -
+curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash -
+NODE=/etc/apt/sources.list.d/nodesource.list
+sudo unlink NODE
+sudo touch $NODE
+sudo cat > "$NODE" <<EOF
+deb https://deb.nodesource.com/node_14.x focal main
+deb-src https://deb.nodesource.com/node_14.x focal main
+EOF
+sudo apt-get update
+sudo apt -y install nodejs
+sudo apt -y install npm
+
+else
+
+curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -
+sudo apt-get -y install nodejs
+
+fi
+
+clear
+echo "node.js & npm: OK!"
+sleep 3s
+
+
+
+#POSTFIX
+clear
+echo "Postfix installation..."
+sleep 3s
+
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq postfix
+
+clear
+echo "Postfix installation: OK!"
 sleep 3s
 echo -e "\n"
 
-#PHPMYADMIN INSTALLATION
-set -euo pipefail
-IFS=$'\n\t'
-sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install phpmyadmin
-sudo service apache2 restart
-sudo apt-get clean
-sudo ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-available/phpmyadmin.conf
-sudo a2enconf phpmyadmin.conf
-sudo service apache2 reload
+
+#PHPMYADMIN
+clear
+echo "phpmyadmin installation..."
+sleep 3s
+
+sudo apt-get install -y yarn
+sudo apt-get install -y php-curl
+composer create-project phpmyadmin/phpmyadmin /var/www/html/pma
+sudo mkdir /var/www/html/pma/tmp/
+sudo chmod 777 /var/www/html/pma/tmp/
+sudo mv /var/www/html/pma/config.sample.inc.php /var/www/html/pma/config.inc.php
+sudo rpl -i -w "['blowfish_secret'] = '';" "['blowfish_secret'] = 'M12SQBq5JKVGA0qZ4ZhPBwfmb0hBYkMA';" /var/www/html/pma/config.inc.php
+
+if [ "$VERSION" = "20.04" ]; then
+
+DBNAME=phpmyadmin
+DBUSER=cipi
+/usr/bin/mysql -u cipi -p$DBPASS <<EOF
+CREATE DATABASE IF NOT EXISTS $DBNAME;
+use mysql;
+CREATE USER $DBUSER@'%' IDENTIFIED BY '$DBPASS';
+GRANT ALL PRIVILEGES ON $DBNAME.* TO $DBUSER@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+
+else
+
+DBNAME=phpmyadmin
+DBUSER=root
+/usr/bin/mysql -u root -p$DBPASS <<EOF
+CREATE DATABASE IF NOT EXISTS $DBNAME;
+CREATE USER $DBUSER@'localhost' IDENTIFIED BY '$DBPASS';
+GRANT USAGE ON *.* TO '$DBUSER'@'localhost' IDENTIFIED BY '$DBPASS' WITH MAX_QUERIES_PER_HOUR 0 MAX_CONNECTIONS_PER_HOUR 0 MAX_UPDATES_PER_HOUR 0 MAX_USER_CONNECTIONS 0;
+GRANT ALL PRIVILEGES ON $DBNAME.* TO $DBUSER@'localhost';
+EOF
+
+fi
+
 clear
 echo "phpmyadmin installation: OK!"
 sleep 3s
 echo -e "\n"
 
-#PING AND STATUS HOOKS
-PING=/cipi/html/ping_$SERVERCODE.php
+
+#CIPI PAGES
+clear
+echo "Cipi pages creation..."
+sleep 3s
+
+PING=/var/www/html/ping_$SERVERCODE.php
 sudo touch $PING
 sudo cat > "$PING" <<EOF
-cipi
+    UP!
 EOF
-STATUS=/cipi/html/stats_$SERVERCODE.php
+
+STATUS=/var/www/html/status_$SERVERCODE.php
 sudo touch $STATUS
 sudo cat > "$STATUS" <<EOF
-<?php
-echo exec("sh /cipi/status.sh");
+    <?php
+    echo exec("sh /cipi/status.sh");
 EOF
 
-#DEFAULT VIRTUALHOST
-HTACCESS=/cipi/html/.htaccess
-sudo touch $HTACCESS
-sudo cat > "$HTACCESS" <<EOF
-<IfModule mod_rewrite.c>
-RewriteEngine On
-RewriteBase /
-RewriteRule ^index\.php$ - [L]
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . /index.php [L]
-</IfModule>
-EOF
-
-
-BASE=/cipi/html/index.php
-sudo touch $BASE
-sudo cat > "$BASE" <<EOF
+WELCOME=/var/www/html/index.php
+sudo touch $WELCOME
+sudo cat > "$WELCOME" <<EOF
 <!doctype html>
 <html lang="en">
 <head>
@@ -246,10 +672,10 @@ sudo cat > "$BASE" <<EOF
 <div class="flex-center position-ref full-height">
     <div class="content">
         <div class="title m-b-md">
-            Hey...<br>This is Cipi :)
+            Hey...<br>This is Cipi ;)
         </div>
         <div class="links">
-            <a href="https://cipi.sh">CIPI CONTROL PANEL</a>
+            <a href="https://cipi.sh">CLOUD CONTROL PANEL</a>
         </div>
     </div>
 </div>
@@ -341,183 +767,61 @@ sudo cat > "$BASE" <<EOF
 </body>
 </html>
 EOF
-sudo service apache2 restart
 
-sudo unlink /etc/apache2/sites-available/000-default.conf
-CONF=/etc/apache2/sites-available/000-default.conf
-sudo touch $CONF
 
-sudo cat > "$CONF" <<EOF
-<VirtualHost *:80>
-        ServerAdmin webmaster@localhost
-        DocumentRoot /cipi/html
-        <Directory />
-          Order allow,deny
-          Options FollowSymLinks
-          Allow from all
-          AllowOverRide All
-          Require all granted
-          SetOutputFilter DEFLATE
-        </Directory>
-        <Directory /cipi/html>
-          Order allow,deny
-          Options FollowSymLinks
-          Allow from all
-          AllowOverRide All
-          Require all granted
-          SetOutputFilter DEFLATE
-        </Directory>
-</VirtualHost>
+clear
+echo "Cipi pages creation: OK!"
+sleep 3s
+echo -e "\n"
+
+
+
+#END
+clear
+echo "Cipi installation is finishing. Wait..."
+sleep 3s
+
+sudo apt-get upgrade -y
+sudo apt-get update
+
+TASK=/etc/cron.d/cipi.crontab
+touch $TASK
+cat > "$TASK" <<EOF
+0 5 * * 7 certbot renew --nginx --non-interactive --post-hook "systemctl restart nginx.service"
+5 4 * * sun DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical sudo apt-get -q -y -o "Dpkg::Options::=--force-confdef" -o "Dpkg::Options::=--force-confold" dist-upgrade
+* 3 * * sun apt-get -y update"
 EOF
-#RESTART
-sudo a2ensite 000-default.conf
-sudo service apache2 reload
-clear
-echo "Default virtualhost: OK!"
-sleep 3s
-echo -e "\n"
+crontab $TASK
 
-#LET'S ENCRYPT
-sudo add-apt-repository -y ppa:certbot/certbot
-sudo apt-get update
-sudo apt-get -y install python-certbot-apache
-sudo service apache2 restart
-clear
-echo "Let's Encrypt installation: OK!"
-sleep 3s
-echo -e "\n"
+sudo systemctl restart nginx.service
 
-#COMPOSER INSTALLATION
-sudo php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-sudo php composer-setup.php
-sudo php -r "unlink('composer-setup.php');"
-sudo mv composer.phar /usr/local/bin/composer
-clear
-echo "Composer installation: OK!"
-sleep 3s
-echo -e "\n"
-
-#GIT INSTALL
-sudo apt-get update
-sudo apt-get -y install git
-sudo ssh-keygen -t rsa -C "git@github.com" -f /cipi/github -q -P ""
-clear
-echo "GIT installation: OK!"
-sleep 3s
-echo -e "\n"
-
-#SUPERVISOR
-sudo apt-get -y install supervisor
-service supervisor restart
-clear
-echo "Supervisor installation: OK!"
-sleep 3s
-echo -e "\n"
-
-#NODE INSTALL
-sudo apt-get -y install nodejs
-sudo apt-get -y install npm
-clear
-echo "Node and NPM installation: OK!"
-sleep 3s
-echo -e "\n"
-
-#SSH AND ROOT ACCESS CONFIGURATION
 sudo rpl -i -w "#PasswordAuthentication" "PasswordAuthentication" /etc/ssh/sshd_config
 sudo rpl -i -w "# PasswordAuthentication" "PasswordAuthentication" /etc/ssh/sshd_config
 sudo rpl -i -w "PasswordAuthentication no" "PasswordAuthentication yes" /etc/ssh/sshd_config
-sudo rpl -i -w "# Port 22" "Port 22" /etc/ssh/sshd_config
-sudo rpl -i -w "#Port 22" "Port 22" /etc/ssh/sshd_config
-sudo rpl -i -w "Port 22" "Port $PORT" /etc/ssh/sshd_config
 sudo rpl -i -w "PermitRootLogin yes" "PermitRootLogin no" /etc/ssh/sshd_config
 sudo service sshd restart
-echo -e "\n"
-clear
-echo "SSH port configuration: OK!"
-sleep 3s
-echo -e "\n"
 
-#OPTIMIZE
-WELCOME=/etc/motd
-sudo touch $WELCOME
-sudo cat > "$WELCOME" <<EOF
-  _____ _       _
- / ____(_)     (_)
-| |     _ _ __  _
-| |    | |  _ \| |
-| |____| | |_) | |
- \_____|_| .__/|_|
-         | |
-         |_|
-
-    <\ WELCOME >
-You are into the server!
-Remember... "With great power comes great responsibility!"
-
-EOF
-
-sudo /bin/dd if=/dev/zero of=/var/swap.1 bs=1M count=1024
-sudo /sbin/mkswap /var/swap.1
-sudo /sbin/swapon /var/swap.1
-dos2unix /cipi/deploy.sh
-dos2unix /cipi/passwd.sh
-dos2unix /cipi/host-add.sh
-dos2unix /cipi/host-del.sh
-dos2unix /cipi/ssl.sh
-PHPINI=/etc/php/7.3/fpm/conf.d/cipi.ini
-sudo touch $PHPINI
-sudo cat > "$PHPINI" <<EOF
-memory_limit = 256M
-upload_max_filesize = 256M
-post_max_size = 256M
-max_execution_time = 180
-max_input_time = 180
-EOF
-sudo service php7.3-fpm restart
-sudo service apache2 restart
-sudo systemctl restart apache2.service
-clear
-echo "Optimization: OK!"
-sleep 3s
-echo -e "\n"
-
-#REMOTE CURL
-sleep 1s
-curl --request GET --url $REMOTEURL/server/api/finalize/$SERVERCODE
-sleep 1s
+curl --request GET --url $REMOTE/remote/finalize/$SERVERCODE
 
 clear
-echo "Remote configuration: OK!"
+echo "Cipi installation has been completed... Wait for your data!"
 sleep 3s
-echo -e "\n"
+
+
 
 #FINAL MESSAGGE
 clear
-echo ""
 echo "***********************************************************"
-echo "SERVER DATA"
-echo "***********************************************************"
-echo "Cipi User:"
-echo "$USER"
-echo ""
-echo "Cipi Pass:"
-echo "$PASS"
-echo ""
-echo "DB root:"
-echo "$DBPASS"
+echo "                    SETUP COMPLETE"
 echo "***********************************************************"
 echo ""
+echo "Use $REMOTE to manage your server."
 echo ""
-echo "  _____ _       _ "
-echo " / ____(_)     (_)"
-echo "| |     _ _ __  _ "
-echo "| |    | |  _ \| |"
-echo "| |____| | |_) | |"
-echo " \_____|_| .__/|_|"
-echo "         | |      "
-echo "         |_|      "
+echo "If you need SSH into this server:"
+echo "Cipi SSH username: $USER"
+echo "Cipi SSH password: $PASS"
+echo "Cipi MySql root/cipi pass: $DBPASS"
 echo ""
-echo "<\ SETUP COMPLETE >"
-echo ""
-echo "Use $REMOTEURL to manage your server :)"
-echo ""
+echo "***********************************************************"
+echo "          DO NOT LOSE AND KEEP SAFE THIS DATA"
+echo "***********************************************************"

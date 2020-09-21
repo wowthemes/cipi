@@ -1,35 +1,34 @@
 @extends('layouts.guest')
 
+@section('title')
+Reset Password
+@endsection
+
 @section('content')
 <div class="row justify-content-center">
     <div class="col-xl-10 col-lg-12 col-md-9">
         <div class="card o-hidden border-0 shadow-lg my-5">
             <div class="card-body p-0">
                 <div class="row">
-                    <div class="col-lg-6 d-none d-lg-block bg-password-image"></div>
+                    <div class="col-lg-6 d-none d-lg-block bg-login-image"></div>
                     <div class="col-lg-6">
                         <div class="p-5">
+                            <img src="/logo.png" class="mx-auto d-block">
+                            <div class="space"></div>
                             <div class="text-center">
-                                <h1 class="h4 text-gray-900 mb-4">{{ __('Reset Password') }}</h1>
+                                <h1 class="h4 text-gray-900 mb-4">RESET PASSWORD</h1>
                             </div>
-                            @if(session('status'))
-                                <div class="alert alert-success" role="alert">
-                                    {{ session('status') }}
-                                </div>
-                            @endif
-                            <form method="POST" action="{{ route('password.email') }}">
+                            <form method="POST" action="{{ route('password.email') }}" class="user ws-validate">
                                 @csrf
                                 <div class="form-group">
-                                    <input id="email" type="email" class="form-control @error('email') is-invalid @enderror form-control-user" name="email" value="{{ old('email') }}" required autocomplete="email" autofocus placeholder="{{ __('foo.bar@foobar.com') }}">
+                                    <input type="email" name="email" class="form-control form-control-user" aria-describedby="emailHelp" placeholder="john.doe@domain.ltd" value="{{ $email ?? old('email') }}" required autocomplete="email" autofocus>
                                 </div>
-                                <input type="submit" class="btn btn-primary btn-user btn-block" value="{{ __('Send Password Reset Link') }}">
+                                <input type="submit" class="btn btn-primary btn-user btn-block" value="Send Password Reset Link">
                             </form>
-                            @if(Route::has('login'))
-                                <hr>
-                                <div class="text-center">
-                                    <a class="small" href="{{ route('login') }}">{{ __('Return to login') }}</a>
-                                </div>
-                            @endif
+                            <hr>
+                            <div class="text-center">
+                                <a class="small" href="{{ route('login') }}">Back to login</a>
+                            </div>
                         </div>
                     </div>
                 </div>

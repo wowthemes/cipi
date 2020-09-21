@@ -1,46 +1,42 @@
 #!/usr/bin/env bash
 
+PHP=
 USER_NAME=
 DBROOT=???
 
 while [ -n "$1" ] ; do
-            case $1 in
-            -u | --user* )
-                    shift
-                    USER_NAME=$1
-                    ;;
-            * )
-                    echo "ERROR: Unknown option: $1"
-                    exit -1
-                    ;;
-            esac
-            shift
+    case $1 in
+    -u | --user* )
+        shift
+        USER_NAME=$1
+        ;;
+    -p | --php* )
+        shift
+        PHP=$1
+        ;;
+    * )
+        echo "ERROR: Unknown option: $1"
+        exit -1
+        ;;
+    esac
+    shift
 done
 
-#LINUX USER
-sudo userdel -r $USER_NAME
+sudo rm /etc/php/$PHP/fpm/pool.d/$USER_NAME.conf
+sudo service php$PHP-fpm restart
 
-#MYSQL USER AND DB
+sudo userdel -r $USER_NAME
+sudo rm -rf /home/$USER_NAME
+
 /usr/bin/mysql -u root -p$DBROOT <<EOF
 DROP DATABASE $USER_NAME;
 DROP USER '$USER_NAME'@'localhost';
 EOF
-sudo unlink /cipi/$USER_NAME
 
-#SSL CERTIFICATE
-sudo unlink /cipi/certbot_renew_$USER_NAME.sh
-sudo unlink /etc/cron.d/certbot_renew_$USER_NAME.crontab
-sudo crontab -u $USER_NAME -r
 
-#APACHE
-sudo a2dissite $USER_NAME.conf
-sudo a2dissite $USER_NAME-le-ssl.conf
-sudo unlink /etc/apache2/sites-available/$USER_NAME.conf
-sudo unlink /etc/apache2/sites-available/$USER_NAME-le-ssl.conf
-
-#RESTART
-sudo service apache2 reload
-sudo systemctl reload apache2
+sudo unlink /etc/nginx/sites-enabled/$USER_NAME.conf
+sudo unlink /etc/nginx/sites-available/$USER_NAME.conf
+sudo systemctl restart nginx.service
 
 clear
 echo "###CIPI###Ok"

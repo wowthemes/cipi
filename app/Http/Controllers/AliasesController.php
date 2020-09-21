@@ -2,196 +2,109 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Routing\UrlGenerator;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
-use App\User;
-use App\Alias;
-use App\Server;
 use App\Application;
-use Helper;
+use App\Alias;
+use phpseclib\Net\SSH2 as SSH;
 
+class AliasesController extends Controller {
 
-class AliasesController extends Controller
-{
+    protected $url;
 
-    public function __construct()
-    {
-        $this->middleware('auth');
+    public function __construct(UrlGenerator $url) {
+        $this->url = $url;
     }
 
-
-    public function index()
-    {
-        $user = User::find(Auth::id());
-        $profile = $user->name;
-
-        $aliases = Alias::orderBy('domain')->orderBy('application_id')->orderBy('server_id')->get();
-
-        return view('aliases', compact('profile', 'aliases'));
+    public function index() {
+        $aliases = Alias::orderBy('domain')->orderBy('application_id')->with('application')->get();
+        return view('aliases', compact('aliases'));
     }
 
-
-    public function create(Request $request)
-    {
-
-
-        $user = User::find(Auth::id());
-        $profile = $user->name;
-
-
+    public function create(Request $request) {
         $this->validate($request, [
-            'domain' => 'required', 'server_id' => 'required', 'application_id' => 'required',
+            'domain' => 'required',
+            'application_id' => 'required'
         ]);
-
-
-        if(Application::where('domain', $request->domain)->where('server_id', $request->server_id)->get()->first()) {
-            $messagge = "This domain is already taken on this server.";
-            return view('generic', compact('profile','messagge'));
+        $application = Application::where('id', $request->application_id)->with('server')->with('aliases')->firstOrFail();
+        if(Application::where('server_id', $application->server_id)->where('domain', $request->domain)->first()) {
+            $request->session()->flash('alert-error', 'This domain is already taken on this server');
+            return redirect('/aliases');
         }
-
-
-        if(Alias::where('domain', $request->domain)->where('server_id', $request->server_id)->get()->first()) {
-            $messagge = "This domain is already taken on this server.";
-            return view('generic', compact('profile','messagge'));
+        $checks = Alias::where('domain', $request->domain)->with('application')->get();
+        foreach($checks as $check) {
+            if($check->application->server_id = $application->server_id) {
+                $request->session()->flash('alert-error', 'This domain is already taken on this server');
+                return redirect('/aliases');
+            }
         }
-
-
-        $server      = Server::where('id', $request->server_id)->where('complete', 2)->get()->first();
-        $application = Application::where('id', $request->application_id)->get()->first();
-
-
-        if(!$server) {
-            return abort(403);
-        }
-
-        $aliascode = md5(uniqid().microtime().$request->name);
-
-        $ssh = New \phpseclib\Net\SSH2($server->ip, $server->port);
-        if(!$ssh->login($server->username, $server->password)) {
-            $messagge = 'There was a problem with server connection. Try later!';
-            return view('generic', compact('profile','messagge'));
-        }
-
-        Storage::disk('local')->put('public/'.$application->username.'.conf', '');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '<VirtualHost *:80>');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '    ServerName '.$application->domain);
-        foreach ($application->aliases as $alias) {
-           Storage::disk('local')->append('public/'.$application->username.'.conf', '    ServerAlias '.$alias->domain);
-        }
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '    ServerAlias '.$request->domain);
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '        ServerAdmin webmaster@localhost');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '        DocumentRoot /home/'.$application->username.'/web/'.$application->basepath);
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '        <Directory />');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Order allow,deny');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Options FollowSymLinks');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Allow from all');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                AllowOverRide All');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Require all granted');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                SetOutputFilter DEFLATE');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '        </Directory>');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '        <Directory /home/'.$application->username.'/web/'.$application->basepath.'>');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Order allow,deny');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Options FollowSymLinks');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Allow from all');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                AllowOverRide All');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                Require all granted');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '                SetOutputFilter DEFLATE');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '        </Directory>');
-        Storage::disk('local')->append('public/'.$application->username.'.conf', '</VirtualHost>');
-
-        $ssh->setTimeout(60);
-        $ssh->exec('echo '.$server->password.' | sudo -S unlink /etc/apache2/sites-available/'.$application->username.'.conf');
-        $ssh->exec('echo '.$server->password.' | sudo -S wget '.env('APP_URL').'/storage/'.$application->username.'.conf  -O /etc/apache2/sites-available/'.$application->username.'.conf');
-        $ssh->exec('echo '.$server->password.' | sudo -S a2ensite '.$application->username.'.conf');
-        $ssh->exec('echo '.$server->password.' | sudo -S service apache2 reload');
-        $ssh->exec('echo '.$server->password.' | sudo -S systemctl reload apache2');
-
-        Storage::disk('local')->delete('public/'.$application->username.'.conf');
-
+        $aliascode = sha1(uniqid().$request->domain.microtime().$request->application_id);
         Alias::create([
-            'domain'          => $request->domain,
-            'server_id'       => $request->server_id,
-            'application_id'  => $request->application_id,
-            'aliascode'       => md5(uniqid().microtime().$request->name),
+            'aliascode'     => $aliascode,
+            'domain'        => $request->domain,
+            'application_id'=> $request->application_id
         ]);
-
-
-        return redirect()->route('aliases');
-
+        $ssh = New SSH($application->server->ip, $application->server->port);
+        if(!$ssh->login($application->server->username, $application->server->password)) {
+            $request->session()->flash('alert-error', 'There was a problem with server connection.');
+            return redirect('/aliases');
+        }
+        $ssh->setTimeout(360);
+        $response = $ssh->exec('echo '.$application->server->password.' | sudo -S sudo sh /cipi/alias-add.sh -d '.$request->domain.' -a '.$application->appcode.' -r '.$this->url->to('/'));
+        if(strpos($response, '###CIPI###') === false) {
+            $request->session()->flash('alert-error', 'There was a problem with server scripts.');
+            return redirect('/aliases');
+        }
+        $response = explode('###CIPI###', $response);
+        if(strpos($response[1], 'Ok') === false) {
+            $request->session()->flash('alert-error', 'There was a problem with server scripts.');
+            return redirect('/aliases');
+        }
+        $request->session()->flash('alert-success', 'Alias '.$request->domain.' has been added!');
+        return redirect('/aliases');
     }
 
-
-
-
-    public function delete(Request $request)
-    {
-
-
-        $user = User::find(Auth::id());
-        $profile = $user->name;
-
-
+    public function destroy(Request $request) {
         $this->validate($request, [
             'aliascode' => 'required',
         ]);
-
-
-        $alias = Alias::where('aliascode', $request->aliascode)->get()->first();
-
-
-        if(!$alias) {
-            return abort(403);
+        $alias = Alias::where('aliascode', $request->aliascode)->with('application')->firstOrFail();
+        $ssh = New SSH($alias->application->server->ip, $alias->application->server->port);
+        if(!$ssh->login($alias->application->server->username, $alias->application->server->password)) {
+            $request->session()->flash('alert-error', 'There was a problem with server connection.');
+            return redirect('/aliases');
         }
-
+        $ssh->setTimeout(360);
+        $ssh->exec('echo '.$alias->application->server->password.' | sudo -S sudo sh /cipi/alias-del.sh -d '.$alias->domain);
+        $request->session()->flash('alert-success', 'Alias '.$alias->domain.' has been removed!');
         $alias->delete();
-
-        $ssh = New \phpseclib\Net\SSH2($alias->server->ip, $alias->server->port);
-        if(!$ssh->login($alias->server->username, $alias->server->password)) {
-            $messagge = 'There was a problem with server connection. Try later!';
-            return view('generic', compact('profile','messagge'));
-        }
-
-        Storage::disk('local')->put('public/'.$alias->application->username.'.conf', '');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '<VirtualHost *:80>');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '    ServerName '.$alias->application->domain);
-        foreach ($alias->application->aliases as $alias) {
-           Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '    ServerAlias '.$alias->domain);
-        }
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '        ServerAdmin webmaster@localhost');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '        DocumentRoot /home/'.$alias->application->username.'/web/'.$alias->application->basepath);
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '        <Directory />');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Order allow,deny');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Options FollowSymLinks');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Allow from all');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                AllowOverRide All');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Require all granted');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                SetOutputFilter DEFLATE');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '        </Directory>');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '        <Directory /home/'.$alias->application->username.'/web/'.$alias->application->basepath.'>');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Order allow,deny');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Options FollowSymLinks');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Allow from all');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                AllowOverRide All');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                Require all granted');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '                SetOutputFilter DEFLATE');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '        </Directory>');
-        Storage::disk('local')->append('public/'.$alias->application->username.'.conf', '</VirtualHost>');
-
-        $ssh->setTimeout(60);
-        $ssh->exec('echo '.$alias->server->password.' | sudo -S unlink /etc/apache2/sites-available/'.$alias->application->username.'.conf');
-        $ssh->exec('echo '.$alias->server->password.' | sudo -S wget '.env('APP_URL').'/storage/'.$alias->application->username.'.conf  -O /etc/apache2/sites-available/'.$alias->application->username.'.conf');
-        $ssh->exec('echo '.$alias->server->password.' | sudo -S a2ensite '.$alias->application->username.'.conf');
-        $ssh->exec('echo '.$alias->server->password.' | sudo -S unlink /etc/cron.d/certbot_renew_'.$alias->domain.'.crontab');
-        $ssh->exec('echo '.$alias->server->password.' | sudo -S unlink /cipi/certbot_renew_'.$alias->domain.'.sh');
-        $ssh->exec('echo '.$alias->server->password.' | sudo -S service apache2 reload');
-        $ssh->exec('echo '.$alias->server->password.' | sudo -S systemctl reload apache2');
-
-        Storage::disk('local')->delete('public/'.$alias->application->username.'.conf');
-
-        return redirect()->route('aliases');
-
+        return redirect('/aliases');
     }
 
+    public static function sslcheck($domain) {
+        $ssl_check = @fsockopen('ssl://' . $domain, 443, $errno, $errstr, 30);
+        $res = !! $ssl_check;
+        if($ssl_check) { fclose($ssl_check); }
+        return $res;
+    }
+
+    public function ssl($aliascode) {
+        $alias = Alias::where('aliascode', $aliascode)->with('application')->firstOrFail();
+        $ssh = New SSH($alias->application->server->ip, $alias->application->server->port);
+        if(!$ssh->login($alias->application->server->username, $alias->application->server->password)) {
+            return abort(403);
+        }
+        $ssh->setTimeout(360);
+        $response = $ssh->exec('echo '.$alias->application->server->password.' | sudo -S sudo sh /cipi/ssl.sh -d '.$alias->domain.' -c '.$alias->domain);
+        if(strpos($response, '###CIPI###') === false) {
+            abort(500);
+        }
+        $response = explode('###CIPI###', $response);
+        if($response[1] == "Ok\n" && $this->sslcheck($alias->domain)) {
+            return 'OK';
+        } else {
+            return abort(500);
+        }
+    }
 
 }
